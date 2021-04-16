@@ -47,6 +47,19 @@ pub enum Color {
         /// Alpha component. [0.0, 1.0]
         alpha: f32,
     },
+    /// Oklab (lightness, green/red, blue/yellow) color space with an alpha channel
+    /// Info can be found https://bottosson.github.io/posts/oklab/
+    /// Max based on https://culorijs.org/color-spaces/
+    Oklab {
+        //perceived lightness [0, 1]
+        lightness: f32,
+        /// how green/red the color is. [-0.233, 0.276]
+        a: f32,
+        /// how blue/yellow the color is. [-0.233, 0.276]
+        b: f32,
+        /// Alpha component. [0.0, 1.0]
+        alpha: f32,
+    },
 }
 
 impl Color {
@@ -145,6 +158,25 @@ impl Color {
             hue,
             saturation,
             lightness,
+            alpha,
+        }
+    }
+
+    pub const fn oklab(lightness: f32, a: f32, b: f32) -> Color {
+        Color::Oklab {
+            lightness,
+            a,
+            b,
+            alpha: 1.0,
+        }
+    }
+
+    /// New `Color` with HSL representation in sRGB colorspace.
+    pub const fn oklaba(lightness: f32, a: f32, b: f32, alpha: f32) -> Color {
+        Color::Oklab {
+            lightness,
+            a,
+            b,
             alpha,
         }
     }
@@ -263,6 +295,7 @@ impl Color {
             Color::Rgba { alpha, .. }
             | Color::RgbaLinear { alpha, .. }
             | Color::Hsla { alpha, .. } => *alpha,
+            Color::Oklab { alpha, .. } => *alpha,
         }
     }
 
@@ -272,6 +305,9 @@ impl Color {
             Color::Rgba { alpha, .. }
             | Color::RgbaLinear { alpha, .. }
             | Color::Hsla { alpha, .. } => {
+                *alpha = a;
+            }
+            Color::Oklab { alpha, .. } => {
                 *alpha = a;
             }
         }
@@ -301,6 +337,21 @@ impl Color {
             } => {
                 let [red, green, blue] =
                     HslRepresentation::hsl_to_nonlinear_srgb(*hue, *saturation, *lightness);
+                Color::Rgba {
+                    red,
+                    green,
+                    blue,
+                    alpha: *alpha,
+                }
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let [red, green, blue] =
+                    OklabRepresentation::oklab_to_linear_srgb(*lightness, *a, *b);
                 Color::Rgba {
                     red,
                     green,
@@ -338,6 +389,21 @@ impl Color {
                     red: red.nonlinear_to_linear_srgb(),
                     green: green.nonlinear_to_linear_srgb(),
                     blue: blue.nonlinear_to_linear_srgb(),
+                    alpha: *alpha,
+                }
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let [red, green, blue] =
+                    OklabRepresentation::oklab_to_linear_srgb(*lightness, *a, *b);
+                Color::Rgba {
+                    red,
+                    green,
+                    blue,
                     alpha: *alpha,
                 }
             }
@@ -381,6 +447,25 @@ impl Color {
                 }
             }
             Color::Hsla { .. } => *self,
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let srgb = OklabRepresentation::oklab_to_linear_srgb(*lightness, *a, *b);
+                let (hue, saturation, lightness) = HslRepresentation::nonlinear_srgb_to_hsl([
+                    srgb[0].linear_to_nonlinear_srgb(),
+                    srgb[1].linear_to_nonlinear_srgb(),
+                    srgb[2].linear_to_nonlinear_srgb(),
+                ]);
+                Color::Hsla {
+                    hue,
+                    saturation,
+                    lightness,
+                    alpha: *alpha,
+                }
+            }
         }
     }
 
@@ -412,6 +497,15 @@ impl Color {
             } => {
                 let [red, green, blue] =
                     HslRepresentation::hsl_to_nonlinear_srgb(hue, saturation, lightness);
+                [red, green, blue, alpha]
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let [red, green, blue] = OklabRepresentation::oklab_to_linear_srgb(lightness, a, b);
                 [red, green, blue, alpha]
             }
         }
@@ -452,6 +546,15 @@ impl Color {
                     alpha,
                 ]
             }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let [red, green, blue] = OklabRepresentation::oklab_to_linear_srgb(lightness, a, b);
+                [red, green, blue, alpha]
+            }
         }
     }
 
@@ -487,6 +590,15 @@ impl Color {
                 lightness,
                 alpha,
             } => [hue, saturation, lightness, alpha],
+            Color::Oklab { lightness, a, b, alpha } => {
+                let [red, green, blue] = OklabRepresentation::oklab_to_linear_srgb(lightness, a, b);
+                let (hue, saturation, lightness) = HslRepresentation::nonlinear_srgb_to_hsl([
+                    red.linear_to_nonlinear_srgb(),
+                    green.linear_to_nonlinear_srgb(),
+                    blue.linear_to_nonlinear_srgb(),
+                ]);
+                [hue, saturation, lightness, alpha]
+            }
         }
     }
 }
@@ -534,6 +646,18 @@ impl AddAssign<Color> for Color {
                 *hue += rhs[0];
                 *saturation += rhs[1];
                 *lightness += rhs[2];
+                *alpha += rhs[3];
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let rhs = rhs.as_linear_rgba_f32();
+                *lightness += rhs[0];
+                *a += rhs[1];
+                *b += rhs[2];
                 *alpha += rhs[3];
             }
         }
@@ -584,6 +708,20 @@ impl Add<Color> for Color {
                     hue: hue + rhs[0],
                     saturation: saturation + rhs[1],
                     lightness: lightness + rhs[2],
+                    alpha: alpha + rhs[3],
+                }
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let rhs = rhs.as_linear_rgba_f32();
+                Color::Oklab {
+                    lightness: lightness + rhs[0],
+                    a: a + rhs[1],
+                    b: b + rhs[2],
                     alpha: alpha + rhs[3],
                 }
             }
@@ -670,6 +808,17 @@ impl Mul<f32> for Color {
                 lightness: lightness * rhs,
                 alpha,
             },
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => Color::Oklab {
+                lightness: lightness * rhs,
+                a: a * rhs,
+                b: b * rhs,
+                alpha,
+            },
         }
     }
 }
@@ -700,6 +849,13 @@ impl MulAssign<f32> for Color {
                 *hue *= rhs;
                 *saturation *= rhs;
                 *lightness *= rhs;
+            }
+            Color::Oklab {
+                lightness, a, b, ..
+            } => {
+                *lightness *= rhs;
+                *a *= rhs;
+                *b *= rhs;
             }
         }
     }
@@ -743,6 +899,17 @@ impl Mul<Vec4> for Color {
                 lightness: lightness * rhs.z,
                 alpha: alpha * rhs.w,
             },
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => Color::Oklab {
+                lightness: lightness * rhs.x,
+                a: a * rhs.y,
+                b: b * rhs.z,
+                alpha: alpha * rhs.w,
+            },
         }
     }
 }
@@ -781,6 +948,17 @@ impl MulAssign<Vec4> for Color {
                 *hue *= rhs.x;
                 *saturation *= rhs.y;
                 *lightness *= rhs.z;
+                *alpha *= rhs.w;
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                *lightness *= rhs.x;
+                *a *= rhs.y;
+                *b *= rhs.z;
                 *alpha *= rhs.w;
             }
         }
@@ -825,6 +1003,17 @@ impl Mul<Vec3> for Color {
                 lightness: lightness * rhs.z,
                 alpha,
             },
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => Color::Oklab {
+                lightness: lightness * rhs.x,
+                a: a * rhs.y,
+                b: b * rhs.z,
+                alpha,
+            },
         }
     }
 }
@@ -855,6 +1044,13 @@ impl MulAssign<Vec3> for Color {
                 *hue *= rhs.x;
                 *saturation *= rhs.y;
                 *lightness *= rhs.z;
+            }
+            Color::Oklab {
+                lightness, a, b, ..
+            } => {
+                *lightness *= rhs.x;
+                *a *= rhs.y;
+                *b *= rhs.z;
             }
         }
     }
@@ -898,6 +1094,17 @@ impl Mul<[f32; 4]> for Color {
                 lightness: lightness * rhs[2],
                 alpha: alpha * rhs[3],
             },
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => Color::Oklab {
+                lightness: lightness * rhs[0],
+                a: a * rhs[1],
+                b: b * rhs[2],
+                alpha: alpha * rhs[3],
+            },
         }
     }
 }
@@ -936,6 +1143,17 @@ impl MulAssign<[f32; 4]> for Color {
                 *hue *= rhs[0];
                 *saturation *= rhs[1];
                 *lightness *= rhs[2];
+                *alpha *= rhs[3];
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                *lightness *= rhs[0];
+                *a *= rhs[1];
+                *b *= rhs[2];
                 *alpha *= rhs[3];
             }
         }
@@ -980,6 +1198,17 @@ impl Mul<[f32; 3]> for Color {
                 lightness: lightness * rhs[2],
                 alpha,
             },
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => Color::Oklab {
+                lightness: lightness * rhs[0],
+                a: a * rhs[1],
+                b: b * rhs[2],
+                alpha,
+            },
         }
     }
 }
@@ -1010,6 +1239,13 @@ impl MulAssign<[f32; 3]> for Color {
                 *hue *= rhs[0];
                 *saturation *= rhs[1];
                 *lightness *= rhs[2];
+            }
+            Color::Oklab {
+                lightness, a, b, ..
+            } => {
+                *lightness *= rhs[0];
+                *a *= rhs[1];
+                *b *= rhs[2];
             }
         }
     }
@@ -1051,6 +1287,21 @@ impl Bytes for Color {
             } => {
                 let [red, green, blue] =
                     HslRepresentation::hsl_to_nonlinear_srgb(hue, saturation, lightness);
+                red.nonlinear_to_linear_srgb().write_bytes(buffer);
+                green
+                    .nonlinear_to_linear_srgb()
+                    .write_bytes(&mut buffer[std::mem::size_of::<f32>()..]);
+                blue.nonlinear_to_linear_srgb()
+                    .write_bytes(&mut buffer[std::mem::size_of::<f32>() * 2..]);
+                alpha.write_bytes(&mut buffer[std::mem::size_of::<f32>() * 3..]);
+            }
+            Color::Oklab {
+                lightness,
+                a,
+                b,
+                alpha,
+            } => {
+                let [red, green, blue] = OklabRepresentation::oklab_to_linear_srgb(lightness, a, b);
                 red.nonlinear_to_linear_srgb().write_bytes(buffer);
                 green
                     .nonlinear_to_linear_srgb()

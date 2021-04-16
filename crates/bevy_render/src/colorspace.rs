@@ -86,6 +86,43 @@ impl HslRepresentation {
     }
 }
 
+pub struct OklabRepresentation;
+impl OklabRepresentation {
+    // Conversion of the code found: https://bottosson.github.io/posts/oklab/
+
+    pub fn oklab_to_linear_srgb(lightness: f32, a: f32, b: f32) -> [f32; 3] {
+        let l_ = lightness + 0.3963377774 * a + 0.2158037573 * b;
+        let m_ = lightness - 0.1055613458 * a - 0.0638541728 * b;
+        let s_ = lightness - 0.0894841775 * a - 1.2914855480 * b;
+
+        let l = l_ * l_ * l_;
+        let m = m_ * m_ * m_;
+        let s = s_ * s_ * s_;
+
+        [
+            4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+            -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+            -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+        ]
+    }
+
+    pub fn linear_srgb_to_oklab([red, green, blue]: [f32; 3]) -> (f32, f32, f32) {
+        let l = 0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue;
+        let m = 0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue;
+        let s = 0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue;
+
+        let l_ = l.cbrt();
+        let m_ = m.cbrt();
+        let s_ = s.cbrt();
+
+        (
+            0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+            1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+            0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -194,6 +231,98 @@ mod test {
         // a blue
         let (hue, saturation, lightness) =
             HslRepresentation::nonlinear_srgb_to_hsl([0.255, 0.104, 0.918]);
+        assert_eq!(hue.round() as u32, 251);
+        assert_eq!((saturation * 100.0).round() as u32, 83);
+        assert_eq!((lightness * 100.0).round() as u32, 51);
+    }
+
+    #[test]
+    fn oklab_to_srgb() {
+        // "truth" from https://en.wikipedia.org/wiki/HSL_and_HSV#Examples
+
+        // black
+        let (hue, saturation, lightness) = (0.0, 0.0, 0.0);
+        let [r, g, b] = OklabRepresentation::oklab_to_linear_srgb(hue, saturation, lightness);
+        assert_eq!((r * 100.0).round() as u32, 0);
+        assert_eq!((g * 100.0).round() as u32, 0);
+        assert_eq!((b * 100.0).round() as u32, 0);
+
+        // white
+        let (hue, saturation, lightness) = (0.0, 0.0, 1.0);
+        let [r, g, b] = OklabRepresentation::oklab_to_linear_srgb(hue, saturation, lightness);
+        assert_eq!((r * 100.0).round() as u32, 100);
+        assert_eq!((g * 100.0).round() as u32, 100);
+        assert_eq!((b * 100.0).round() as u32, 100);
+
+        let (hue, saturation, lightness) = (300.0, 0.5, 0.5);
+        let [r, g, b] = OklabRepresentation::oklab_to_linear_srgb(hue, saturation, lightness);
+        assert_eq!((r * 100.0).round() as u32, 75);
+        assert_eq!((g * 100.0).round() as u32, 25);
+        assert_eq!((b * 100.0).round() as u32, 75);
+
+        // a red
+        let (hue, saturation, lightness) = (283.7, 0.775, 0.543);
+        let [r, g, b] = OklabRepresentation::oklab_to_linear_srgb(hue, saturation, lightness);
+        assert_eq!((r * 100.0).round() as u32, 70);
+        assert_eq!((g * 100.0).round() as u32, 19);
+        assert_eq!((b * 100.0).round() as u32, 90);
+
+        // a green
+        let (hue, saturation, lightness) = (162.4, 0.779, 0.447);
+        let [r, g, b] = OklabRepresentation::oklab_to_linear_srgb(hue, saturation, lightness);
+        assert_eq!((r * 100.0).round() as u32, 10);
+        assert_eq!((g * 100.0).round() as u32, 80);
+        assert_eq!((b * 100.0).round() as u32, 59);
+
+        // a blue
+        let (hue, saturation, lightness) = (251.1, 0.832, 0.511);
+        let [r, g, b] = OklabRepresentation::oklab_to_linear_srgb(hue, saturation, lightness);
+        assert_eq!((r * 100.0).round() as u32, 25);
+        assert_eq!((g * 100.0).round() as u32, 10);
+        assert_eq!((b * 100.0).round() as u32, 92);
+    }
+
+    #[test]
+    fn srgb_to_oklab() {
+        // "truth" from https://en.wikipedia.org/wiki/HSL_and_HSV#Examples
+
+        // black
+        let (hue, saturation, lightness) =
+            OklabRepresentation::linear_srgb_to_oklab([0.0, 0.0, 0.0]);
+        assert_eq!(hue.round() as u32, 0);
+        assert_eq!((saturation * 100.0).round() as u32, 0);
+        assert_eq!((lightness * 100.0).round() as u32, 0);
+
+        // white
+        let (hue, saturation, lightness) =
+            OklabRepresentation::linear_srgb_to_oklab([1.0, 1.0, 1.0]);
+        assert_eq!(hue.round() as u32, 0);
+        assert_eq!((saturation * 100.0).round() as u32, 0);
+        assert_eq!((lightness * 100.0).round() as u32, 100);
+
+        let (hue, saturation, lightness) =
+            OklabRepresentation::linear_srgb_to_oklab([0.75, 0.25, 0.75]);
+        assert_eq!(hue.round() as u32, 300);
+        assert_eq!((saturation * 100.0).round() as u32, 50);
+        assert_eq!((lightness * 100.0).round() as u32, 50);
+
+        // a red
+        let (hue, saturation, lightness) =
+            OklabRepresentation::linear_srgb_to_oklab([0.704, 0.187, 0.897]);
+        assert_eq!(hue.round() as u32, 284);
+        assert_eq!((saturation * 100.0).round() as u32, 78);
+        assert_eq!((lightness * 100.0).round() as u32, 54);
+
+        // a green
+        let (hue, saturation, lightness) =
+            OklabRepresentation::linear_srgb_to_oklab([0.099, 0.795, 0.591]);
+        assert_eq!(hue.round() as u32, 162);
+        assert_eq!((saturation * 100.0).round() as u32, 78);
+        assert_eq!((lightness * 100.0).round() as u32, 45);
+
+        // a blue
+        let (hue, saturation, lightness) =
+            OklabRepresentation::linear_srgb_to_oklab([0.255, 0.104, 0.918]);
         assert_eq!(hue.round() as u32, 251);
         assert_eq!((saturation * 100.0).round() as u32, 83);
         assert_eq!((lightness * 100.0).round() as u32, 51);
